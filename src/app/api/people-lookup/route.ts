@@ -524,54 +524,15 @@ export async function POST(request: NextRequest) {
             });
         }
 
-        // Step 3: Enrich people with real emails and generate paragraphs for first 10
-        const peopleToEnrich = apolloResults.slice(0, 10);
-        console.log(`Enriching ${peopleToEnrich.length} people (emails + Perplexity research)...`);
-
-        const enrichedPeople = await Promise.all(
-            peopleToEnrich.map(async (person) => {
-                // Step 3a: Enrich with Apollo to unlock real email (uses company name from search)
-                const enrichedContact = await enrichApolloPerson(person);
-
-                // Update person with enriched data if available
-                const enrichedPerson = {
-                    ...person,
-                    email: enrichedContact.email || person.email,
-                    phone: enrichedContact.phone || person.phone
-                };
-
-                // Step 3b: Research each person with Perplexity
-                const researchSummary = await researchPersonWithPerplexity(enrichedPerson, companyInfo);
-
-                // Step 3c: Generate personalized paragraphs with the research
-                const paragraphs = await generateInterestParagraphs(enrichedPerson, companyInfo, researchSummary);
-
-                return {
-                    ...enrichedPerson,
-                    researchSummary: researchSummary || undefined,
-                    companyInterestParagraph: paragraphs.companyInterest,
-                    personInterestParagraph: paragraphs.personInterest
-                };
-            })
-        );
-
-        // Add remaining people with default paragraphs
-        const remainingPeople = apolloResults.slice(10).map(person => ({
-            ...person,
-            companyInterestParagraph: `We at Venture Strategy Solutions are excited about ${companyInfo.name}'s innovative work.`,
-            personInterestParagraph: `We'd love to connect with ${person.name} about potential collaboration opportunities.`
-        }));
-
-        const finalPeople = [...enrichedPeople, ...remainingPeople];
-
+        // Return all people without enrichment - users will unlock individually
         return NextResponse.json({
             success: true,
-            people: finalPeople,
+            people: apolloResults,
             company: companyInfo,
             meta: {
                 apolloCount: apolloResults.length,
                 totalUnique: apolloResults.length,
-                enrichedCount: enrichedPeople.length
+                enrichedCount: 0
             }
         });
     } catch (error) {

@@ -88,10 +88,10 @@ export function PeopleLookupTab() {
         throw new Error(data.error || 'Lookup failed')
       }
 
-      // Mark first 10 as unlocked (they have personalized messages)
-      const peopleWithUnlockStatus = data.people.map((person: Person, index: number) => ({
+      // All people start as locked - users unlock individually
+      const peopleWithUnlockStatus = data.people.map((person: Person) => ({
         ...person,
-        isUnlocked: index < data.meta.enrichedCount
+        isUnlocked: false
       }))
 
       setResults(peopleWithUnlockStatus)
