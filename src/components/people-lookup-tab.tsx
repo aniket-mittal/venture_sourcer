@@ -6,8 +6,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { Building2, Download, Users, Loader2, Mail, Phone, Linkedin, ChevronDown, ChevronUp, Unlock, Lock, UserSearch, AlertCircle } from "lucide-react"
+import { Building2, Download, Users, Loader2, Mail, Phone, Linkedin, ChevronDown, ChevronUp, Unlock, Lock, UserSearch, AlertCircle, CheckSquare } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Checkbox } from "@/components/ui/checkbox"
 
 interface Person {
   id: string
@@ -57,6 +58,7 @@ export function PeopleLookupTab() {
   const [expandedPerson, setExpandedPerson] = useState<string | null>(null)
   const [unlockingIds, setUnlockingIds] = useState<Set<string>>(new Set())
   const [resultLimit, setResultLimit] = useState<number>(25)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
   const handleLookup = async () => {
     if (!companyName.trim()) return
@@ -224,7 +226,103 @@ export function PeopleLookupTab() {
     setExpandedPerson(expandedPerson === personId ? null : personId)
   }
 
+  const toggleSelected = (personId: string) => {
+    setSelectedIds(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(personId)) {
+        newSet.delete(personId)
+      } else {
+        newSet.add(personId)
+      }
+      return newSet
+    })
+  }
+
+  const lockedPeople = results.filter(p => !p.isUnlocked)
+  const allLockedSelected = lockedPeople.length > 0 && lockedPeople.every(p => selectedIds.has(p.id))
+
+  const toggleSelectAllLocked = () => {
+    if (allLockedSelected) {
+      // Deselect all
+      setSelectedIds(new Set())
+    } else {
+      // Select all locked
+      setSelectedIds(new Set(lockedPeople.map(p => p.id)))
+    }
+  }
+
+  const handleUnlockSelected = async () => {
+    if (!company || selectedIds.size === 0) return
+
+    const peopleToUnlock = results.filter(p => selectedIds.has(p.id) && !p.isUnlocked)
+    if (peopleToUnlock.length === 0) return
+
+    // Add all to unlocking state
+    setUnlockingIds(prev => new Set([...prev, ...peopleToUnlock.map(p => p.id)]))
+
+    // Unlock all in parallel
+    const unlockPromises = peopleToUnlock.map(async (person) => {
+      try {
+        const response = await fetch('/api/unlock-person', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            firstName: person.firstName,
+            lastName: person.lastName,
+            name: person.name,
+            title: person.title,
+            seniority: person.seniority,
+            companyName: person.companyName,
+            companyIndustry: company.industry,
+            companyDescription: company.description
+          }),
+        })
+
+        const data = await response.json()
+        if (response.ok && data.success) {
+          return { personId: person.id, success: true, data }
+        }
+        return { personId: person.id, success: false }
+      } catch {
+        return { personId: person.id, success: false }
+      }
+    })
+
+    const results_data = await Promise.all(unlockPromises)
+
+    // Update results with unlocked data
+    setResults(prev => prev.map(p => {
+      const result = results_data.find(r => r.personId === p.id)
+      if (result?.success && result.data) {
+        return {
+          ...p,
+          email: result.data.email || p.email,
+          phone: result.data.phone || p.phone,
+          researchSummary: result.data.researchSummary,
+          companyInterestParagraph: result.data.companyInterestParagraph,
+          personInterestParagraph: result.data.personInterestParagraph,
+          isUnlocked: true
+        }
+      }
+      return p
+    }))
+
+    // Update meta count
+    const successCount = results_data.filter(r => r.success).length
+    if (meta && successCount > 0) {
+      setMeta({ ...meta, enrichedCount: meta.enrichedCount + successCount })
+    }
+
+    // Clear selections and unlocking state
+    setSelectedIds(new Set())
+    setUnlockingIds(new Set())
+  }
+
   const unlockedCount = results.filter(p => p.isUnlocked).length
+  const selectedLockedCount = [...selectedIds].filter(id => {
+    const person = results.find(p => p.id === id)
+    return person && !person.isUnlocked
+  }).length
 
   return (
     <Card className="mx-auto max-w-4xl">
@@ -356,79 +454,127 @@ export function PeopleLookupTab() {
               )}
             </div>
 
+            {/* Selection controls */}
+            {lockedPeople.length > 0 && (
+              <div className="flex items-center gap-4 p-3 rounded-lg bg-muted/50 border">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="select-all"
+                    checked={allLockedSelected}
+                    onCheckedChange={toggleSelectAllLocked}
+                  />
+                  <label htmlFor="select-all" className="text-sm font-medium cursor-pointer">
+                    Select all locked ({lockedPeople.length})
+                  </label>
+                </div>
+                {selectedLockedCount > 0 && (
+                  <Button
+                    size="sm"
+                    onClick={handleUnlockSelected}
+                    disabled={unlockingIds.size > 0}
+                    className="gap-2"
+                  >
+                    {unlockingIds.size > 0 ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Unlocking {unlockingIds.size}...
+                      </>
+                    ) : (
+                      <>
+                        <CheckSquare className="h-4 w-4" />
+                        Unlock Selected ({selectedLockedCount})
+                      </>
+                    )}
+                  </Button>
+                )}
+              </div>
+            )}
+
             <div className="space-y-3">
               {results.map((person) => (
                 <div
                   key={person.id}
-                  className="rounded-lg border border-border bg-card overflow-hidden"
+                  className={`rounded-lg border bg-card overflow-hidden ${selectedIds.has(person.id) ? 'border-primary' : 'border-border'
+                    }`}
                 >
                   <div
                     className="p-4 cursor-pointer hover:bg-accent/50 transition-colors"
                     onClick={() => toggleExpanded(person.id)}
                   >
                     <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1 space-y-2">
-                        <div className="flex items-center gap-2">
-                          <h4 className="font-semibold text-foreground">{person.name}</h4>
-                          {person.isUnlocked ? (
-                            <Badge variant="default" className="text-xs bg-green-600">
-                              <Unlock className="h-3 w-3 mr-1" />
-                              Unlocked
-                            </Badge>
-                          ) : (
-                            <Badge variant="secondary" className="text-xs">
-                              <Lock className="h-3 w-3 mr-1" />
-                              Locked
-                            </Badge>
-                          )}
-                        </div>
-
-                        {person.title && (
-                          <p className="text-sm text-muted-foreground">
-                            {person.title}
-                            {person.seniority && (
-                              <span className="ml-2">
-                                <Badge variant="outline" className="text-xs capitalize">
-                                  {person.seniority.replace(/_/g, ' ')}
-                                </Badge>
-                              </span>
-                            )}
-                          </p>
+                      <div className="flex items-start gap-3">
+                        {/* Checkbox for locked people */}
+                        {!person.isUnlocked && (
+                          <Checkbox
+                            checked={selectedIds.has(person.id)}
+                            onCheckedChange={() => toggleSelected(person.id)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="mt-1"
+                          />
                         )}
+                        <div className="flex-1 space-y-2">
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-semibold text-foreground">{person.name}</h4>
+                            {person.isUnlocked ? (
+                              <Badge variant="default" className="text-xs bg-green-600">
+                                <Unlock className="h-3 w-3 mr-1" />
+                                Unlocked
+                              </Badge>
+                            ) : (
+                              <Badge variant="secondary" className="text-xs">
+                                <Lock className="h-3 w-3 mr-1" />
+                                Locked
+                              </Badge>
+                            )}
+                          </div>
 
-                        <div className="flex flex-wrap items-center gap-4 text-sm">
-                          {person.email && !person.email.includes('email_not_unlocked') && (
-                            <a
-                              href={`mailto:${person.email}`}
-                              className="flex items-center gap-1 text-primary hover:underline"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <Mail className="h-3.5 w-3.5" />
-                              {person.email}
-                            </a>
+                          {person.title && (
+                            <p className="text-sm text-muted-foreground">
+                              {person.title}
+                              {person.seniority && (
+                                <span className="ml-2">
+                                  <Badge variant="outline" className="text-xs capitalize">
+                                    {person.seniority.replace(/_/g, ' ')}
+                                  </Badge>
+                                </span>
+                              )}
+                            </p>
                           )}
-                          {person.phone && (
-                            <a
-                              href={`tel:${person.phone}`}
-                              className="flex items-center gap-1 text-primary hover:underline"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <Phone className="h-3.5 w-3.5" />
-                              {person.phone}
-                            </a>
-                          )}
-                          {person.linkedinUrl && (
-                            <a
-                              href={person.linkedinUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center gap-1 text-primary hover:underline"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <Linkedin className="h-3.5 w-3.5" />
-                              LinkedIn
-                            </a>
-                          )}
+
+                          <div className="flex flex-wrap items-center gap-4 text-sm">
+                            {person.email && !person.email.includes('email_not_unlocked') && (
+                              <a
+                                href={`mailto:${person.email}`}
+                                className="flex items-center gap-1 text-primary hover:underline"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <Mail className="h-3.5 w-3.5" />
+                                {person.email}
+                              </a>
+                            )}
+                            {person.phone && (
+                              <a
+                                href={`tel:${person.phone}`}
+                                className="flex items-center gap-1 text-primary hover:underline"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <Phone className="h-3.5 w-3.5" />
+                                {person.phone}
+                              </a>
+                            )}
+                            {person.linkedinUrl && (
+                              <a
+                                href={person.linkedinUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1 text-primary hover:underline"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <Linkedin className="h-3.5 w-3.5" />
+                                LinkedIn
+                              </a>
+                            )}
+                          </div>
                         </div>
                       </div>
 
