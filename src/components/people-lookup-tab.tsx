@@ -387,7 +387,7 @@ export function PeopleLookupTab() {
               onValueChange={(value) => setResultLimit(parseInt(value))}
               disabled={isLoading}
             >
-              <SelectTrigger className="h-12 w-[140px]">
+              <SelectTrigger className="h-12 w-[140px] text-base">
                 <UserSearch className="h-4 w-4 mr-2 text-muted-foreground" />
                 <SelectValue placeholder="Results" />
               </SelectTrigger>
@@ -432,8 +432,8 @@ export function PeopleLookupTab() {
                     <label
                       key={option.value}
                       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border cursor-pointer transition-colors ${seniorities.includes(option.value)
-                          ? 'bg-primary text-primary-foreground border-primary'
-                          : 'bg-background hover:bg-accent'
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : 'bg-background hover:bg-accent'
                         }`}
                     >
                       <input
