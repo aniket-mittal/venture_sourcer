@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+// Venture Strategy Solutions context for generating interest paragraphs
+const VSS_CONTEXT = `Venture Strategy Solutions is a student-led organization at Berkeley that provides technology and strategy consulting services targeted towards startups. We've worked with leading companies like Figma, Niantic and Lime and provide exceptional work for whatever a startup may need help with.`;
+
 // Enrich a single person via Apollo People Match API to unlock real email
-async function enrichPerson(firstName: string, lastName: string, companyName: string, domain: string) {
+async function enrichPerson(firstName: string, lastName: string, companyName: string) {
     const apolloKey = process.env.APOLLO_API_KEY;
     if (!apolloKey) {
         throw new Error('APOLLO_API_KEY not set');
@@ -17,7 +20,6 @@ async function enrichPerson(firstName: string, lastName: string, companyName: st
             first_name: firstName,
             last_name: lastName,
             organization_name: companyName,
-            domain: domain,
             reveal_personal_emails: true
         })
     });
@@ -41,8 +43,8 @@ async function enrichPerson(firstName: string, lastName: string, companyName: st
     return { email: null, phone: null };
 }
 
-// Research person with Perplexity
-async function researchPerson(name: string, title: string, companyName: string) {
+// Use Perplexity to research a person for more detailed information
+async function researchPersonWithPerplexity(name: string, title: string, companyName: string): Promise<string> {
     const perplexityKey = process.env.PERPLEXITY_API_KEY;
     if (!perplexityKey) {
         return '';
@@ -62,7 +64,7 @@ async function researchPerson(name: string, title: string, companyName: string) 
                 messages: [
                     {
                         role: 'system',
-                        content: `You are researching a professional for business outreach. Search the web and provide a brief 2-3 sentence summary about this person's background, achievements, or recent work that would be relevant for a business introduction. Focus on their professional accomplishments.
+                        content: `You are researching a professional for business outreach. Search the web and provide a brief 2-3 sentence summary about this person's background, achievements, or recent work that would be relevant for a business introduction. Focus on their professional accomplishments, any public speaking, articles they've written, or notable projects.
 
 If you can't find specific information about this person, just say "No additional information found" - do NOT make up information.`
                     },
@@ -77,30 +79,42 @@ If you can't find specific information about this person, just say "No additiona
         });
 
         if (!response.ok) {
+            console.error('Perplexity person research error:', response.status);
             return '';
         }
 
         const data = await response.json();
         const content = data.choices?.[0]?.message?.content || '';
 
+        // Check if Perplexity found useful information
         if (content.toLowerCase().includes('no additional information found') ||
-            content.toLowerCase().includes("couldn't find")) {
+            content.toLowerCase().includes("couldn't find") ||
+            content.toLowerCase().includes("i don't have")) {
             return '';
         }
 
         return content.trim();
-    } catch {
+    } catch (error) {
+        console.error('Perplexity person research error:', error);
         return '';
     }
 }
 
-// Generate personalized paragraphs
-async function generateParagraphs(personName: string, personTitle: string, companyName: string, companyIndustry: string, research: string) {
+// Generate personalized interest paragraphs using OpenRouter with Perplexity research
+async function generateInterestParagraphs(
+    personName: string,
+    personTitle: string,
+    personSeniority: string,
+    companyName: string,
+    companyIndustry: string,
+    companyDescription: string,
+    perplexityResearch: string
+): Promise<{ companyInterest: string; personInterest: string }> {
     const openrouterKey = process.env.OPENROUTER_API_KEY;
 
     const fallback = {
-        companyInterest: `We at Venture Strategy Solutions are excited about ${companyName}'s work in ${companyIndustry || 'the technology sector'}.`,
-        personInterest: `We're particularly interested in connecting with ${personName} given their expertise as ${personTitle || 'a key team member'}.`
+        companyInterest: `We at Venture Strategy Solutions are excited about ${companyName}'s work in ${companyIndustry || 'the technology sector'}. As a student-led consulting organization at Berkeley, we'd love to explore how we can support your growth.`,
+        personInterest: `We're particularly interested in connecting with ${personName} given their expertise as ${personTitle || 'a key team member'}. Your insights would be invaluable as we discuss potential collaboration opportunities.`
     };
 
     if (!openrouterKey) {
@@ -108,7 +122,9 @@ async function generateParagraphs(personName: string, personTitle: string, compa
     }
 
     try {
-        const additionalContext = research ? `\n\nAdditional research about this person:\n${research}` : '';
+        const additionalContext = perplexityResearch
+            ? `\n\nAdditional research about this person:\n${perplexityResearch}`
+            : '';
 
         const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
             method: 'POST',
@@ -123,11 +139,15 @@ async function generateParagraphs(personName: string, personTitle: string, compa
                 messages: [
                     {
                         role: 'system',
-                        content: `You are writing personalized outreach paragraphs for Venture Strategy Solutions (VSS), a student-led organization at Berkeley that provides technology and strategy consulting services to startups.
+                        content: `You are writing personalized outreach paragraphs for Venture Strategy Solutions (VSS).
+
+${VSS_CONTEXT}
 
 Write two SHORT paragraphs (2-3 sentences each):
 1. "companyInterest": Express genuine interest in what the target company does
-2. "personInterest": Express specific interest in what this person does at the company
+2. "personInterest": Express specific interest in what this person does at the company. If additional research is provided, reference specific achievements or work.
+
+Be professional, enthusiastic, and specific. Make it personal - reference their actual role and any research findings.
 
 Return ONLY valid JSON:
 {"companyInterest": "...", "personInterest": "..."}`
@@ -136,9 +156,11 @@ Return ONLY valid JSON:
                         role: 'user',
                         content: `Company: ${companyName}
 Industry: ${companyIndustry || 'Technology'}
+Description: ${companyDescription || 'A technology company'}
 
 Person: ${personName}
-Role: ${personTitle || 'Team member'}${additionalContext}`
+Role: ${personTitle || 'Team member'}
+Seniority: ${personSeniority || 'Unknown'}${additionalContext}`
                     }
                 ],
                 temperature: 0.7,
@@ -147,12 +169,14 @@ Role: ${personTitle || 'Team member'}${additionalContext}`
         });
 
         if (!response.ok) {
+            console.error('OpenRouter API error:', response.status);
             return fallback;
         }
 
         const data = await response.json();
         const content = data.choices?.[0]?.message?.content || '';
 
+        // Try to extract JSON from the response
         const jsonMatch = content.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
             try {
@@ -163,13 +187,25 @@ Role: ${personTitle || 'Team member'}${additionalContext}`
                         personInterest: parsed.personInterest
                     };
                 }
-            } catch {
-                // Fall through to fallback
+            } catch (parseError) {
+                console.error('JSON parse error, trying to extract text directly');
             }
         }
 
+        // Fallback: try to extract text between quotes if JSON failed
+        const companyMatch = content.match(/companyInterest["\\s:]+([^"]+"|[^}]+)/i);
+        const personMatch = content.match(/personInterest["\\s:]+([^"]+"|[^}]+)/i);
+
+        if (companyMatch || personMatch) {
+            return {
+                companyInterest: companyMatch ? companyMatch[1].replace(/["{}]/g, '').trim() : fallback.companyInterest,
+                personInterest: personMatch ? personMatch[1].replace(/["{}]/g, '').trim() : fallback.personInterest
+            };
+        }
+
         return fallback;
-    } catch {
+    } catch (error) {
+        console.error('Interest paragraph generation error:', error);
         return fallback;
     }
 }
@@ -177,7 +213,7 @@ Role: ${personTitle || 'Team member'}${additionalContext}`
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
-        const { firstName, lastName, name, title, companyName, companyDomain, companyIndustry } = body;
+        const { firstName, lastName, name, title, seniority, companyName, companyIndustry, companyDescription } = body;
 
         if (!firstName || !lastName || !companyName) {
             return NextResponse.json(
@@ -188,19 +224,24 @@ export async function POST(request: NextRequest) {
 
         console.log(`Unlocking ${name} at ${companyName}...`);
 
-        // Step 1: Enrich with Apollo to get email
-        const domain = companyDomain || companyName.toLowerCase().replace(/[^a-z0-9]/g, '') + '.com';
-        const enrichedContact = await enrichPerson(firstName, lastName, companyName, domain);
+        // Step 1: Enrich with Apollo to get email (uses company name, no domain needed)
+        const enrichedContact = await enrichPerson(firstName, lastName, companyName);
 
-        // Step 2: Research with Perplexity
-        const researchSummary = await researchPerson(name || `${firstName} ${lastName}`, title || '', companyName);
-
-        // Step 3: Generate personalized paragraphs
-        const paragraphs = await generateParagraphs(
+        // Step 2: Research with Perplexity (same prompt as people-lookup)
+        const researchSummary = await researchPersonWithPerplexity(
             name || `${firstName} ${lastName}`,
             title || '',
+            companyName
+        );
+
+        // Step 3: Generate personalized paragraphs (same prompt as people-lookup)
+        const paragraphs = await generateInterestParagraphs(
+            name || `${firstName} ${lastName}`,
+            title || '',
+            seniority || '',
             companyName,
             companyIndustry || '',
+            companyDescription || '',
             researchSummary
         );
 

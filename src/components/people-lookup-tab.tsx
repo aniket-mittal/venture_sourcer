@@ -121,9 +121,10 @@ export function PeopleLookupTab() {
           lastName: person.lastName,
           name: person.name,
           title: person.title,
+          seniority: person.seniority,
           companyName: person.companyName,
-          companyDomain: company.domain,
-          companyIndustry: company.industry
+          companyIndustry: company.industry,
+          companyDescription: company.description
         }),
       })
 
