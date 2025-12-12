@@ -144,8 +144,18 @@ async function findCompanyDomain(companyName: string): Promise<CompanyInfo | nul
     };
 }
 
+// Valid seniority values for Apollo API
+const VALID_SENIORITIES = ['founder', 'c_suite', 'owner', 'vp', 'director', 'manager', 'senior', 'head', 'entry', 'intern'];
+const DEFAULT_SENIORITIES = ['founder', 'c_suite', 'vp', 'director', 'manager', 'senior'];
+
 // Search Apollo for people at a company by name AND domain for best results
-async function searchApolloPeople(companyName: string, limit: number = 100, domain?: string): Promise<Person[]> {
+async function searchApolloPeople(
+    companyName: string,
+    limit: number = 100,
+    domain?: string,
+    seniorities?: string[],
+    titleKeywords?: string[]
+): Promise<Person[]> {
     const apolloKey = process.env.APOLLO_API_KEY;
     if (!apolloKey) {
         console.warn('APOLLO_API_KEY not set');
@@ -155,20 +165,33 @@ async function searchApolloPeople(companyName: string, limit: number = 100, doma
     const allPeople: Person[] = [];
     const seenIds = new Set<string>();
 
+    // Use provided seniorities or defaults
+    const seniorityFilter = seniorities && seniorities.length > 0
+        ? seniorities.filter(s => VALID_SENIORITIES.includes(s))
+        : DEFAULT_SENIORITIES;
+
     // Strategy 1: Search by company name directly
     try {
-        console.log(`Searching by company name: "${companyName}"`);
+        console.log(`Searching by company name: "${companyName}" with seniorities:`, seniorityFilter);
+
+        const searchBody: Record<string, unknown> = {
+            q_organization_name: companyName,
+            per_page: limit,
+            person_seniorities: seniorityFilter
+        };
+
+        // Add title keywords if provided (Apollo uses q_person_title for title search)
+        if (titleKeywords && titleKeywords.length > 0) {
+            searchBody.person_titles = titleKeywords;
+        }
+
         const response = await fetch('https://api.apollo.io/api/v1/mixed_people/search', {
             method: 'POST',
             headers: {
                 'x-api-key': apolloKey,
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({
-                q_organization_name: companyName,
-                per_page: limit,
-                person_seniorities: ['founder', 'c_suite', 'vp', 'director', 'manager', 'senior']
-            })
+            body: JSON.stringify(searchBody)
         });
 
         if (response.ok) {
@@ -203,17 +226,24 @@ async function searchApolloPeople(companyName: string, limit: number = 100, doma
     if (domain && allPeople.length < limit) {
         try {
             console.log(`Searching by domain: "${domain}"`);
+
+            const domainSearchBody: Record<string, unknown> = {
+                q_organization_domains: domain,
+                per_page: limit,
+                person_seniorities: seniorityFilter
+            };
+
+            if (titleKeywords && titleKeywords.length > 0) {
+                domainSearchBody.person_titles = titleKeywords;
+            }
+
             const response = await fetch('https://api.apollo.io/api/v1/mixed_people/search', {
                 method: 'POST',
                 headers: {
                     'x-api-key': apolloKey,
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({
-                    q_organization_domains: domain,
-                    per_page: limit,
-                    person_seniorities: ['founder', 'c_suite', 'vp', 'director', 'manager', 'senior']
-                })
+                body: JSON.stringify(domainSearchBody)
             });
 
             if (response.ok) {
@@ -468,11 +498,15 @@ Seniority: ${person.seniority || 'Unknown'}${additionalContext}`
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
-        const { companyName, limit = 100 } = body;
+        const { companyName, limit = 100, seniorities, titleKeywords } = body;
 
         // Validate limit to acceptable values
         const validLimits = [10, 15, 25, 50, 100];
         const searchLimit = validLimits.includes(limit) ? limit : 100;
+
+        // Validate seniorities if provided
+        const validatedSeniorities = Array.isArray(seniorities) ? seniorities : undefined;
+        const validatedTitleKeywords = Array.isArray(titleKeywords) ? titleKeywords : undefined;
 
         if (!companyName || typeof companyName !== 'string') {
             return NextResponse.json(
@@ -505,7 +539,13 @@ export async function POST(request: NextRequest) {
         console.log('Using domain:', companyInfo.domain);
 
         // Step 2: Search for people at the company (by name and domain)
-        const apolloResults = await searchApolloPeople(companyName, searchLimit, companyInfo.domain || undefined);
+        const apolloResults = await searchApolloPeople(
+            companyName,
+            searchLimit,
+            companyInfo.domain || undefined,
+            validatedSeniorities,
+            validatedTitleKeywords
+        );
         console.log(`Apollo returned ${apolloResults.length} people`);
 
         if (apolloResults.length === 0) {

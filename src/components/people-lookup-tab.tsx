@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { Building2, Download, Users, Loader2, Mail, Phone, Linkedin, ChevronDown, ChevronUp, Unlock, Lock, UserSearch, AlertCircle, CheckSquare } from "lucide-react"
+import { Building2, Download, Users, Loader2, Mail, Phone, Linkedin, ChevronDown, ChevronUp, Unlock, Lock, UserSearch, AlertCircle, CheckSquare, Filter } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
 
@@ -59,6 +59,23 @@ export function PeopleLookupTab() {
   const [unlockingIds, setUnlockingIds] = useState<Set<string>>(new Set())
   const [resultLimit, setResultLimit] = useState<number>(25)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [seniorities, setSeniorities] = useState<string[]>(['founder', 'c_suite', 'vp', 'director', 'manager', 'senior'])
+  const [titleKeyword, setTitleKeyword] = useState<string>("")
+  const [showFilters, setShowFilters] = useState(false)
+
+  // Seniority options
+  const SENIORITY_OPTIONS = [
+    { value: 'founder', label: 'Founder' },
+    { value: 'c_suite', label: 'C-Suite' },
+    { value: 'owner', label: 'Owner' },
+    { value: 'vp', label: 'VP' },
+    { value: 'director', label: 'Director' },
+    { value: 'manager', label: 'Manager' },
+    { value: 'senior', label: 'Senior' },
+    { value: 'head', label: 'Head' },
+    { value: 'entry', label: 'Entry' },
+    { value: 'intern', label: 'Intern' },
+  ]
 
   const handleLookup = async () => {
     if (!companyName.trim()) return
@@ -75,7 +92,12 @@ export function PeopleLookupTab() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ companyName, limit: resultLimit }),
+        body: JSON.stringify({
+          companyName,
+          limit: resultLimit,
+          seniorities: seniorities.length > 0 ? seniorities : undefined,
+          titleKeywords: titleKeyword.trim() ? [titleKeyword.trim()] : undefined
+        }),
       })
 
       const data = await response.json()
@@ -377,8 +399,63 @@ export function PeopleLookupTab() {
                 <SelectItem value="100">100 people</SelectItem>
               </SelectContent>
             </Select>
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-12 w-12"
+              onClick={() => setShowFilters(!showFilters)}
+            >
+              <Filter className={`h-4 w-4 ${showFilters ? 'text-primary' : ''}`} />
+            </Button>
           </div>
           <p className="text-sm text-muted-foreground">Enter the name of the company to retrieve employee data</p>
+
+          {/* Advanced Filters */}
+          {showFilters && (
+            <div className="space-y-4 p-4 rounded-lg border bg-muted/30">
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Title Keyword</Label>
+                <Input
+                  placeholder="e.g., Engineering, Product, Sales..."
+                  value={titleKeyword}
+                  onChange={(e) => setTitleKeyword(e.target.value)}
+                  disabled={isLoading}
+                  className="h-10"
+                />
+                <p className="text-xs text-muted-foreground">Filter by job title keyword (optional)</p>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Seniority Levels</Label>
+                <div className="flex flex-wrap gap-2">
+                  {SENIORITY_OPTIONS.map((option) => (
+                    <label
+                      key={option.value}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border cursor-pointer transition-colors ${seniorities.includes(option.value)
+                          ? 'bg-primary text-primary-foreground border-primary'
+                          : 'bg-background hover:bg-accent'
+                        }`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="sr-only"
+                        checked={seniorities.includes(option.value)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSeniorities([...seniorities, option.value])
+                          } else {
+                            setSeniorities(seniorities.filter(s => s !== option.value))
+                          }
+                        }}
+                      />
+                      <span className="text-xs font-medium">{option.label}</span>
+                    </label>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">Select which seniority levels to include</p>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-3">
