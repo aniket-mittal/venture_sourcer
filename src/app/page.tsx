@@ -1,10 +1,24 @@
+"use client"
+
+import { useRouter } from "next/navigation"
+import { createClient } from "@/lib/supabase"
 import { CompanySearchTab } from "@/components/company-search-tab"
 import { PeopleLookupTab } from "@/components/people-lookup-tab"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Search, Users } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Search, Users, LogOut } from "lucide-react"
 import Image from "next/image"
 
 export default function Home() {
+  const router = useRouter()
+  const supabase = createClient()
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    router.push("/login")
+    router.refresh()
+  }
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -26,6 +40,10 @@ export default function Home() {
                 <p className="text-sm text-muted-foreground">Intelligence Platform</p>
               </div>
             </div>
+            <Button variant="ghost" size="sm" onClick={handleLogout} className="gap-2">
+              <LogOut className="h-4 w-4" />
+              Sign Out
+            </Button>
           </div>
         </div>
       </header>
