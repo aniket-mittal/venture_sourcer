@@ -166,7 +166,7 @@ export function CompanySearchTab() {
               <h3 className="text-lg font-semibold">Search Results</h3>
               {meta && (
                 <p className="text-sm text-muted-foreground">
-                  Found {meta.totalUnique} companies (Apollo: {meta.apolloCount}, PDL: {meta.pdlCount})
+                  Found {meta.totalUnique} companies
                 </p>
               )}
             </div>
