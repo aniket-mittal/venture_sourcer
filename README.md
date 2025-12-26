@@ -1,6 +1,6 @@
 # Venture Sourcer
 
-An intelligence platform built for consulting clubs to streamline startup outreach. Find key people at top startups, get their contact information, and generate personalized talking points—all in one place.
+An intelligence platform built for consulting clubs to streamline startup outreach. Find key people at top startups, get their contact information, generate personalized talking points, and send emails—all in one place.
 
 ## Motivation
 
@@ -10,16 +10,24 @@ Consulting clubs often need to reach out to professionals at startups for networ
 2. Find the right people to contact
 3. Research each person's background
 4. Craft personalized outreach messages
+5. Send emails one by one
 
-**Venture Sourcer automates this entire workflow**, reducing hours of manual research to seconds.
+**Venture Sourcer automates this entire workflow**, reducing hours of manual research and outreach to seconds.
 
 ## Features
+
+### 🚀 Onboarding Flow
+New users are guided through setup:
+- **Apollo API Key** configuration
+- **Email Template** creation with rich text (bold, italics, links)
+- **Dynamic Variable Mapping** (e.g., `{{First Name}}` → recipient's first name)
+- **File Attachments** for email templates
 
 ### 🔍 Company Search
 Search for companies using natural language prompts like:
 - "Fintech companies in NYC with over 50 employees"
 - "Healthcare AI startups that raised funding in 2024"
-- "Enterprise SaaS companies targeting real estate"
+- "Series B aerospace startups"
 
 Returns detailed company information including:
 - Company name and description
@@ -42,6 +50,21 @@ Each contact can be "unlocked" to get:
   - Why your club is interested in their company
   - Why you specifically want to connect with them
 
+### ✉️ Email System
+Send personalized outreach emails directly from the platform:
+- **Rich Text Templates** with bold, italics, hyperlinks
+- **Dynamic Variables** like `{{First Name}}`, `{{Company Name}}`, `{{Company Interest}}`
+- **Auto-Variable Mapping** via AI (maps template variables to data fields automatically)
+- **File Attachments** support
+- **Test Emails** to preview how your template looks with sample data
+- **Email History** to track all sent emails
+
+### 📊 Apollo Usage Tracking
+Monitor your Apollo API usage:
+- Daily, hourly, and minute-level rate limits
+- Credit consumption tracking
+- API key validation
+
 ### 📥 CSV Export
 Download unlocked contacts with all their information:
 - Name, email, phone, title, LinkedIn
@@ -50,21 +73,24 @@ Download unlocked contacts with all their information:
 
 ## Tech Stack
 
-- **Framework:** Next.js 14 (App Router)
+- **Framework:** Next.js 16 (App Router)
 - **UI:** shadcn/ui + Tailwind CSS
-- **Authentication:** Supabase Auth
+- **Rich Text:** React Quill
+- **Authentication:** Supabase Auth (Google OAuth)
+- **Database:** Supabase (PostgreSQL)
 - **APIs:**
   - Apollo.io (company/people search + email enrichment)
   - Perplexity AI (web research)
   - OpenRouter/Claude (personalized content generation)
+  - Gmail API (email sending)
 
 ## Getting Started
 
 ### Prerequisites
 - Node.js 18+
 - npm or pnpm
-- API keys for Apollo, Perplexity, and OpenRouter
-- Supabase project (for authentication)
+- API keys for Apollo, Perplexity, OpenRouter, and Gmail
+- Supabase project (for authentication and database)
 
 ### Installation
 
@@ -96,9 +122,58 @@ OPENROUTER_API_KEY=your_openrouter_api_key
 # Perplexity AI
 PERPLEXITY_API_KEY=your_perplexity_api_key
 
-# Supabase (for authentication)
+# Supabase (for authentication & database)
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
+
+# Gmail API (for sending emails)
+GMAIL_CLIENT_ID=your_gmail_client_id
+GMAIL_CLIENT_SECRET=your_gmail_client_secret
+GMAIL_REFRESH_TOKEN=your_gmail_refresh_token
+GMAIL_FROM_EMAIL=your_email@gmail.com
+```
+
+### Database Setup
+
+Run the following SQL in your Supabase SQL editor:
+
+```sql
+-- Profiles table
+CREATE TABLE profiles (
+  id UUID REFERENCES auth.users PRIMARY KEY,
+  email TEXT,
+  full_name TEXT,
+  avatar_url TEXT,
+  apollo_api_key TEXT,
+  email_subject TEXT,
+  email_template TEXT,
+  variable_mappings JSONB,
+  attachments JSONB,
+  is_onboarded BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Sent emails table
+CREATE TABLE sent_emails (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users,
+  recipient_email TEXT NOT NULL,
+  recipient_name TEXT,
+  company_name TEXT,
+  sent_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Enable RLS
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE sent_emails ENABLE ROW LEVEL SECURITY;
+
+-- RLS Policies
+CREATE POLICY "Users can access own profile" ON profiles
+FOR ALL USING (auth.uid() = id) WITH CHECK (auth.uid() = id);
+
+CREATE POLICY "Users can access own emails" ON sent_emails
+FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 ```
 
 ### Running Locally
@@ -110,50 +185,63 @@ npm run dev
 
 Visit [http://localhost:3000](http://localhost:3000)
 
-### Adding Users
-
-Since sign-up is disabled, add users manually in Supabase:
-1. Go to Supabase Dashboard → Authentication → Users
-2. Click "Add User" → "Create New User"
-3. Enter email and password, check "Auto Confirm User"
-
 ## Project Structure
 
 ```
 venture_sourcer/
-├── .env                    # Environment variables (not in git)
-├── .gitignore
+├── .env                        # Environment variables (not in git)
 ├── README.md
-├── documentation/          # API documentation
 └── src/
     ├── app/
     │   ├── api/
-    │   │   ├── company-search/   # Company search endpoint
-    │   │   ├── people-lookup/    # People lookup endpoint
-    │   │   └── unlock-person/    # Individual unlock endpoint
-    │   ├── auth/callback/        # OAuth callback
-    │   ├── login/                # Login page
-    │   └── page.tsx              # Main application
+    │   │   ├── apollo-usage/       # Apollo credit tracking
+    │   │   ├── auto-map-variables/ # AI variable mapping
+    │   │   ├── company-search/     # Company search endpoint
+    │   │   ├── generate-interest/  # Generate personalized paragraphs
+    │   │   ├── people-lookup/      # People lookup endpoint
+    │   │   ├── send-email/         # Email sending endpoint
+    │   │   └── unlock-person/      # Individual unlock endpoint
+    │   ├── auth/callback/          # OAuth callback
+    │   ├── login/                  # Login page
+    │   ├── onboarding/             # New user onboarding
+    │   └── page.tsx                # Main application
     ├── components/
     │   ├── company-search-tab.tsx
+    │   ├── email-history-tab.tsx
+    │   ├── home-content.tsx
+    │   ├── onboarding-content.tsx
+    │   ├── onboarding-form.tsx
     │   ├── people-lookup-tab.tsx
-    │   └── ui/                   # shadcn components
+    │   ├── rich-text-editor.tsx
+    │   ├── user-nav.tsx
+    │   └── ui/                     # shadcn components
     ├── lib/
-    │   ├── supabase.ts           # Browser client
-    │   └── supabase-server.ts    # Server client
-    └── middleware.ts             # Route protection
+    │   ├── api-helper.ts           # API key helper
+    │   ├── supabase.ts             # Browser client
+    │   └── supabase-server.ts      # Server client
+    └── middleware.ts               # Route protection
 ```
 
 ## API Endpoints
 
-### POST /api/company-search
-Search for companies using natural language.
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/company-search` | POST | Search for companies using natural language |
+| `/api/people-lookup` | POST | Find people at a company |
+| `/api/unlock-person` | POST | Unlock email and generate personalized content |
+| `/api/send-email` | POST | Send a personalized email |
+| `/api/auto-map-variables` | POST | AI-powered variable mapping |
+| `/api/apollo-usage` | POST | Check Apollo API usage/credits |
+| `/api/generate-interest` | POST | Generate company/person interest paragraphs |
 
-### POST /api/people-lookup
-Find people at a company with automatic enrichment.
+## Deployment
 
-### POST /api/unlock-person
-Unlock a single person's email and generate personalized content.
+The application is designed to be deployed on **Vercel**:
+1. Connect your GitHub repository to Vercel
+2. Set all environment variables in Vercel's dashboard
+3. Deploy!
+
+> **Note:** Users can also configure their Apollo API key after onboarding. The app prioritizes user-specific keys stored in the database over environment variables.
 
 ## License
 
