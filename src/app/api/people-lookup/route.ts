@@ -25,6 +25,26 @@ interface CompanyInfo {
     description: string | null;
 }
 
+import { createServerClient } from "@supabase/ssr"
+import { cookies } from "next/headers"
+import { getApolloKey } from "@/lib/api-helper"
+
+async function getUser() {
+    const cookieStore = await cookies()
+    const supabase = createServerClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        {
+            cookies: {
+                getAll() { return cookieStore.getAll() },
+                setAll() { }
+            }
+        }
+    )
+    const { data: { user } } = await supabase.auth.getUser()
+    return user
+}
+
 // Venture Strategy Solutions context for generating interest paragraphs
 const VSS_CONTEXT = `Venture Strategy Solutions is a student-led organization at Berkeley that provides technology and strategy consulting services targeted towards startups. We've worked with leading companies like Figma, Niantic and Lime and provide exceptional work for whatever a startup may need help with.`;
 
@@ -87,7 +107,8 @@ Return ONLY a JSON array of strings, like:
 
 // Find company domain using Apollo, trying multiple name variations
 async function findCompanyDomain(companyName: string): Promise<CompanyInfo | null> {
-    const apolloKey = process.env.APOLLO_API_KEY;
+    const user = await getUser()
+    const apolloKey = await getApolloKey(user?.id)
     if (!apolloKey) {
         console.warn('APOLLO_API_KEY not set');
         return null;
@@ -156,7 +177,8 @@ async function searchApolloPeople(
     seniorities?: string[],
     titleKeywords?: string[]
 ): Promise<Person[]> {
-    const apolloKey = process.env.APOLLO_API_KEY;
+    const user = await getUser()
+    const apolloKey = await getApolloKey(user?.id)
     if (!apolloKey) {
         console.warn('APOLLO_API_KEY not set');
         return [];
@@ -217,6 +239,19 @@ async function searchApolloPeople(
                     });
                 }
             }
+        } else {
+            const errorText = await response.text();
+            console.error('Apollo Name Search API Check:', response.status, errorText);
+            if (response.status === 422 || response.status === 403) {
+                console.warn("Apollo Plan Restriction encountered regarding People Search");
+                // We can't return here as this is inside a function called by POST, 
+                // but we can return an empty array and let the main handler deal with "0 found".
+                // Or better, we should throw to be caught by the main handler?
+                // Current logic: returns [], logs error.
+                // Ideally we want the UI to know.
+                return []; // Return an empty array immediately for 403/422 errors
+            }
+            // For now, continue logging, but since the user is confused, detailed logging helps.
         }
     } catch (error) {
         console.error('Apollo name search error:', error);
@@ -282,7 +317,8 @@ async function searchApolloPeople(
 // Enrich a person via Apollo People Match API to unlock real email
 // Uses company name from search results - no domain needed
 async function enrichApolloPerson(person: Person): Promise<{ email: string | null; phone: string | null }> {
-    const apolloKey = process.env.APOLLO_API_KEY;
+    const user = await getUser()
+    const apolloKey = await getApolloKey(user?.id)
     if (!apolloKey || !person.firstName || !person.lastName) {
         return { email: null, phone: null };
     }

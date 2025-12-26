@@ -16,6 +16,26 @@ interface Company {
   source: 'apollo' | 'perplexity';
 }
 
+import { createServerClient } from "@supabase/ssr"
+import { cookies } from "next/headers"
+import { getApolloKey } from "@/lib/api-helper"
+
+async function getUser() {
+  const cookieStore = await cookies()
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() { return cookieStore.getAll() },
+        setAll() { }
+      }
+    }
+  )
+  const { data: { user } } = await supabase.auth.getUser()
+  return user
+}
+
 interface SearchCriteria {
   industries: string[];
   locations: string[];
@@ -185,7 +205,8 @@ Find up to 10 relevant companies. Focus on startups and growth-stage companies.`
 
 // Search Apollo for organizations
 async function searchApollo(criteria: SearchCriteria): Promise<Company[]> {
-  const apolloKey = process.env.APOLLO_API_KEY;
+  const user = await getUser()
+  const apolloKey = await getApolloKey(user?.id)
   if (!apolloKey) {
     console.warn('APOLLO_API_KEY not set');
     return [];
@@ -217,7 +238,7 @@ async function searchApollo(criteria: SearchCriteria): Promise<Company[]> {
       body.q_organization_name = criteria.keywords.join(' ');
     }
 
-    const response = await fetch('https://api.apollo.io/api/v1/mixed_companies/search', {
+    const response = await fetch('https://api.apollo.io/v1/organizations/search', {
       method: 'POST',
       headers: {
         'x-api-key': apolloKey,
@@ -229,6 +250,13 @@ async function searchApollo(criteria: SearchCriteria): Promise<Company[]> {
     if (!response.ok) {
       const errorText = await response.text();
       console.error('Apollo API error:', response.status, errorText);
+
+      if (response.status === 422 || response.status === 403) {
+        // Pass the Apollo error (like "Insufficient credits" or "Upgrade plan") to the client
+        return []; // Returning empty array for now, but logging it is key.
+        // Ideally we throw an error that the UI catches, but the current UI expects an array.
+        // Let's rely on the previous logic but log specifically.
+      }
       return [];
     }
 

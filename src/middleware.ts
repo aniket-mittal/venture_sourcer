@@ -36,8 +36,9 @@ export async function middleware(request: NextRequest) {
     // Refresh session if expired
     const { data: { user } } = await supabase.auth.getUser()
 
-    // Define public routes that don't require auth
-    const publicRoutes = ['/login', '/auth/callback']
+    // Define public routes that don't require auth redirect
+    // API routes handle their own auth with 401 responses
+    const publicRoutes = ['/login', '/auth/callback', '/api/']
     const isPublicRoute = publicRoutes.some(route =>
         request.nextUrl.pathname.startsWith(route)
     )

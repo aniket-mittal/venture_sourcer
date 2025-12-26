@@ -31,9 +31,26 @@ export async function GET(request: Request) {
             }
         )
 
-        const { error } = await supabase.auth.exchangeCodeForSession(code)
+        const { data, error } = await supabase.auth.exchangeCodeForSession(code)
 
-        if (!error) {
+        if (!error && data.user) {
+            // Ensure profile exists
+            const { data: profile } = await supabase
+                .from('profiles')
+                .select('id')
+                .eq('id', data.user.id)
+                .single()
+
+            if (!profile) {
+                // Create profile for new user
+                await supabase.from('profiles').insert({
+                    id: data.user.id,
+                    is_onboarded: false
+                })
+                // Redirect to onboarding for new users
+                return NextResponse.redirect(`${origin}/onboarding`)
+            }
+
             return NextResponse.redirect(`${origin}${next}`)
         }
     }
